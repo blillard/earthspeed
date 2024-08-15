@@ -11,7 +11,7 @@ Default values: (all velocities in km/s)
 - local standard of rest velocity: (0, 238., 0)
 - solar peculiar velocity: (11.1, 12.2, 7.3)
 - average Earth speed: 29.8
-These values are used in vEt_precise(date) to recover the instantaneous Earth
+These values are used in vEt(date) to recover the instantaneous Earth
     speed in the galactic rest frame, as a function of time ('date').
 
 * Example: recent vE(t) maximum at 2024 May 30, 05:28 UTC: vE = 266.2 km/s
@@ -20,7 +20,7 @@ This package uses the datetime format for time (e.g. '1999-12-31T12:00:00')
 and astropy for conversions between galactic and ICRS coordinate systems.
 
 Important functions:
-* vEt_precise(obstime, vCirc_kms=238., at_Sun=False): returns the Earth velocity
+* vEt(obstime, vCirc_kms=238., at_Sun=False): returns the Earth velocity
     vE(t) at time 'obstime' in Cartesian galactic coordinates
     vCirc_kms: sets the circular speed of the LSR
     at_Sun: if True, then sets the Earth speed relative to the Sun to zero.
@@ -38,7 +38,7 @@ Important functions:
 
 """
 
-__all__ = ['km_s', 'vEt_precise', 'vEt_sincemax', 'vE_AltAz', 'Windfinder']
+__all__ = ['km_s', 'vEt', 'vE_AltAz', 'Windfinder', 'vEt_sincemax', 'now']
 
 
 import numpy as np
@@ -57,7 +57,7 @@ VUNIT_c = (2.99792e5)**(-1) # [velocity] unit, in units of c.
 g_c = 1./VUNIT_c # The speed of light in units of [velocity]
 km_s = (2.99792e5)**(-1) * g_c # 1 km/s in units of [velocity]
 
-def vEt_precise(obstime, vCirc_kms=238., at_Sun=False):
+def vEt(obstime, vCirc_kms=238., at_Sun=False):
     """Returns the instantaneous Earth velocity in the galactic rest frame.
 
     obstime: a datetime object (year, month, day, hour=...)
@@ -124,7 +124,7 @@ def vEt_sincemax(n_days, vCirc_kms=238.):
     """
     date_ref = dts.datetime(2024, 5, 30, 5, 28, 0)
     date = date_ref + dts.timedelta(days=n_days)
-    vE = vEt_precise(date, vCirc_kms=vCirc_kms)
+    vE = vEt(date, vCirc_kms=vCirc_kms)
     return vE
 
 def dts_to_astro(date):
@@ -141,7 +141,7 @@ def dts_to_astro(date):
 def vE_AltAz(obstime, location, vCirc=238.*km_s):
     if obstime.tzinfo is not None:
         obstime = obstime.astimezone(dts.timezone.utc)
-    vE_uvw = vEt_precise(obstime, vCirc_kms=vCirc/km_s, at_Sun=False)
+    vE_uvw = vEt(obstime, vCirc_kms=vCirc/km_s, at_Sun=False)
     speed = np.linalg.norm(vE_uvw)
     U_kms, V_kms, W_kms = vE_uvw/km_s
     wvec = Galactic(u=U_kms*u.pc, v=V_kms*u.pc, w=W_kms*u.pc,
@@ -152,6 +152,30 @@ def vE_AltAz(obstime, location, vCirc=238.*km_s):
     az = wind.az.degree
     return np.array([speed, alt, az])
 
+def now(location=None, vCirc=238.*km_s, at_Sun=False, RA_hours=False):
+    """Prints the vE location at the current moment. Returns Windfinder(now).
+
+    location: if not None, then now() also prints the (alt, az) sky position.
+    RA_hours: if True, returns RA in units of hours rather than degrees.
+    """
+    obstime = dts.datetime.now(dts.timezone.utc)
+    wind = Windfinder([obstime], vCirc=vCirc, at_Sun=at_Sun)
+    if RA_hours:
+        radec = wind.RAdec_h[0]
+        raunit = 'hour'
+    else:
+        radec = wind.RAdec[0]
+        raunit = 'deg'
+    print('DM wind location at {} (UTC):'.format(obstime))
+    print('\tRA = {:.3f} [{}] \tdec = {:.3f} [deg]'.format(radec[0], raunit, radec[1]))
+    if location is not None:
+        lat = location.to_geodetic().lat
+        lon = location.to_geodetic().lon
+        alt, az = wind.altAz(location)[0]
+        print('sky coordinates at Earth location (lat,lon) = ({:.3f}, {:.3f}) [deg]:'.format(lat.deg, lon.deg))
+        print('\taltitude = {:.3f} [deg] \tazimuth = {:.3f} [deg]'.format(alt, az))
+        #
+    return wind
 
 class Windfinder():
     """Finds the galactic frame Earth velocity at times 'obstimes'.
@@ -162,12 +186,14 @@ class Windfinder():
     Arguments:
         obstimes: a list of datetime objects (can be timezone-aware)
         vCirc: circular speed of the LSR (default: 238 km/s)
-        at_Sun: ignores the speed of the Earth relative to the Sun
+        at_Sun: ignores the speed of the Earth relative to the Sun,
+            to turn off the annual variation.
 
     Outputs:
         speed: value of |vE|
         vE_uvw: velocity in Cartesian galactic coordinates U, V, W
-        RAdec: the right ascension and declination (RA, dec) of vE
+        RAdec: the right ascension and declination (RA, dec) of vE in degrees
+        RAdec: RA and dec (RA, dec) of vE, with RA in hours (and dec in degrees)
         vE_RAdec: velocity (speed, RA, dec)
         lb: galactic coordinates (l, b) for velocity vector
         vE_lb: velocity (speed, l, b)
@@ -182,6 +208,7 @@ class Windfinder():
         self.speed = np.zeros(len(obstimes))
         self.vE_uvw = np.zeros((len(obstimes), 3))
         self.RAdec = np.zeros((len(obstimes), 2))
+        self.RAdec_h = np.zeros((len(obstimes), 2))
         self.vE_RAdec = np.zeros((len(obstimes), 3))
         self.lb = np.zeros((len(obstimes), 2))
         self.vE_lb = np.zeros((len(obstimes), 3))
@@ -192,7 +219,7 @@ class Windfinder():
                 obstime = obstime.astimezone(dts.timezone.utc)
             self.obstimes[j] = obstime
 
-            vE_uvw = vEt_precise(obstime, vCirc_kms=vCirc/km_s, at_Sun=at_Sun)
+            vE_uvw = vEt(obstime, vCirc_kms=vCirc/km_s, at_Sun=at_Sun)
             speed = np.linalg.norm(vE_uvw)
             self.vE_uvw[j] = vE_uvw
             self.speed[j] = speed
@@ -206,6 +233,9 @@ class Windfinder():
             RAdec = np.array([icrs.ra.deg, icrs.dec.deg])
             self.RAdec[j] = RAdec
             self.vE_RAdec[j] = np.array([speed, RAdec[0], RAdec[1]])
+
+            RAdec_h = np.array([icrs.ra.hour, icrs.dec.deg])
+            self.RAdec_h[j] = RAdec_h
 
             galactic = icrs.transform_to(Galactic()) # not Cartesian
             lb = np.array([galactic.l.deg, galactic.b.deg])
