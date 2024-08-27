@@ -4,4 +4,4 @@ from .windfinder import *
 
 __all__ = windfinder.__all__
 
-__version__ = "1.0"
+__version__ = "1.1"
