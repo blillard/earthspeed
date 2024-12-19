@@ -5,7 +5,12 @@ Details of the Earth's elliptical orbit around the Sun follow
     corrections for dark matter experiments based on elastic nuclear recoil".
 with updated numerical values from 2105.00599 (D. Baxter et. al., "Recommended
 conventions for reporting results from direct dark matter searches") for the
-local standard of rest (LSR) and the Sun peculiar velocity
+local standard of rest (LSR) and the Sun peculiar velocity.
+    Lewin & Smith expressions for the elliptical Earth orbit include an error,
+noted in 1307.5323 (S. Lee, M. Lisanti, B. Safdi) and corrected in
+1312.1355 (C. McCabe). Assuming an LSR speed of 238 km/s, the L&S expressions
+predict a maximum DM wind speed on 2024 May 30, 05:28:00 UTC.
+The corrected version shifts the maximum to 2024 May 31, 11:58:45 UTC.
 
 Default values: (all velocities in km/s)
 - local standard of rest velocity: (0, 238., 0)
@@ -14,7 +19,8 @@ Default values: (all velocities in km/s)
 These values are used in vEt(date) to recover the instantaneous Earth
     speed in the galactic rest frame, as a function of time ('date').
 
-* Example: recent vE(t) maximum at 2024 May 30, 05:28 UTC: vE = 266.2 km/s
+* Examples: recent vE(t) maximum at UTC 2024-05-31 11:59:45: vE = 266.20 km/s
+            recent vE(t) minimum at UTC 2024-12-02 04:07:09: vE = 237.19 km/s
 
 This package uses the datetime format for time (e.g. '1999-12-31T12:00:00')
 and astropy for conversions between galactic and ICRS coordinate systems.
@@ -34,7 +40,10 @@ Important functions:
     for every observation time in the list obstimes.
     Windfinder.altAz(location) finds (alt, az) coordinates at 'location'.
 
-
+Functions of convenience:
+* vEt_sincemax(nDays): returns vE(t) for time t measured in the number of
+    days since the last maximum of vE(t), t_ref = 2024-05-31 11:59:45 (UTC)
+* now(): returns vE(t) at the current time 
 
 """
 
@@ -96,33 +105,45 @@ def vEt(obstime, vCirc_kms=238., at_Sun=False):
 
     # Earth velocity w.r.t. the Sun:
     uE_avg = 29.79*km_s
-    els = 0.016722 # ellipticity of Earth orbit
-    # angular constants (all in degrees)
-    lam0 = 13. # longitude of orbit minor axis. has error +- 1 degree (1996)
-    bX = -5.5303
-    bY = 59.575
-    bZ = 29.812
-    lX = 266.141
-    lY = -13.3485
-    lZ = 179.3212
+    els = 0.01671 # ellipticity of Earth orbit
+    e_deg = els * 180 / math.pi # ellipticity, in degrees
+    # angular constants (all in degrees) using 1312.1355 values
+    lam0 = 12.9 # longitude of orbit minor axis.
+    bX = -5.536
+    bY = 59.574
+    bZ = 29.811
+    lX = 266.840
+    lY = 347.340
+    lZ = 180.023
     L = (280.460 + 0.9856474*nDays) % 360 # (degrees)
-    g = (357.528 + 0.9856003*nDays) % 360# (degrees)
-    # ecliptic longitude:
-    lam = L + 1.915*math.sin(g * math.pi/180) + 0.020*math.sin(2*g * math.pi/180)
+    g = (357.528 + 0.9856003*nDays) % 360 # (degrees)
+    # ecliptic longitude (degrees):
+    lam = (L + 2*e_deg * math.sin(g * math.pi/180)
+           + 1.25*els*e_deg * math.sin(2*g * math.pi/180))
+    # using 1312.1355 expression for elliptical orbit (correcting Lewin & Smith)
     uEl = uE_avg * (1 - els*math.sin((lam - lam0)*math.pi/180))
-    uEx = uEl * math.cos(bX * math.pi/180) * math.sin((lam - lX)*math.pi/180)
-    uEy = uEl * math.cos(bY * math.pi/180) * math.sin((lam - lY)*math.pi/180)
-    uEz = uEl * math.cos(bZ * math.pi/180) * math.sin((lam - lZ)*math.pi/180)
+    e0_x = math.sin((lam - lX)*math.pi/180)
+    e1_x = els * math.cos((lX - lam0)*math.pi/180)
+    uEx = uE_avg * math.cos(bX * math.pi/180) * (e0_x - e1_x)
+    e0_y = math.sin((lam - lY)*math.pi/180)
+    e1_y = els * math.cos((lY - lam0)*math.pi/180)
+    uEy = uE_avg * math.cos(bY * math.pi/180) * (e0_y - e1_y)
+    e0_z = math.sin((lam - lZ)*math.pi/180)
+    e1_z = els * math.cos((lZ - lam0)*math.pi/180)
+    uEz = uE_avg * math.cos(bZ * math.pi/180) * (e0_z - e1_z)
     vE = np.array([uR[0]+uS[0]+uEx, uR[1]+uS[1]+uEy, uR[2]+uS[2]+uEz])
     return vE
 
-def vEt_sincemax(n_days, vCirc_kms=238.):
-    """Simple method for annual variation, vE(n_days) for days since last maximum.
+def vEt_sincemax(n_days, vCirc_kms=238.,
+                 date_ref=dts.datetime(2024, 5, 31, 11, 58, 45)):
+    """Simple method for annual variation:
 
-    Using 2024-05-30 05:28:00 as the reference point, where vE(t) is maximized.
-    n_days can be float-valued.
+        vE(t), with t measured in days since last maximum (n_days).
+
+    Using 2024-05-31 11:58:45 as the reference point, where vE(t) is maximized
+        (assuming vCirc = 238 km/s).
     """
-    date_ref = dts.datetime(2024, 5, 30, 5, 28, 0)
+
     date = date_ref + dts.timedelta(days=n_days)
     vE = vEt(date, vCirc_kms=vCirc_kms)
     return vE
